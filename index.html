@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SIGAP - GeoSense MASTERPIECE</title>
+    <title>SIGAP - Integrated Geospatial Intelligence</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -128,7 +128,7 @@
             </div>
             <div>
                 <h1 class="text-4xl font-bold tracking-tighter">SIGAP</h1>
-                <p class="text-sm text-blue-400 tracking-[0.3em]">GEOSPATIAL AI</p>
+                <p class="text-sm text-blue-400 tracking-[0.3em]">Integrated Geospatial Intelligence</p>
             </div>
         </div>
         <div class="w-48 h-1 bg-slate-800 rounded-full overflow-hidden">
@@ -333,9 +333,31 @@
                 <div>
                     <label class="text-xs font-bold text-slate-400 block mb-2">KETERANGAN</label>
                     <select class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                        <option>Tanah Longsor</option>
-                        <option>Banjir Bandang</option>
-                        <option>Jalan Putus</option>
+                        focus:ring-2 focus:ring-blue-500">
+
+                        <!-- Bencana Alam -->
+                        <optgroup label="Bencana Alam">
+                            <option>Banjir</option>
+                            <option>Banjir Bandang</option>
+                            <option>Tanah Longsor</option>
+                            <option>Kebakaran Hutan/Lahan</option>
+                            <option>Gempa Bumi</option>
+                        </optgroup>
+
+                        <!-- Kerusakan Infrastruktur -->
+                        <optgroup label="Kerusakan Infrastruktur">
+                            <option>Jalan Rusak/Ambles</option>
+                            <option>Jalan Putus</option>
+                            <option>Jembatan Putus/Roboh</option>
+                            <option>Tanggul Jebol</option>
+                        </optgroup>
+
+                        <!-- Insiden Lingkungan -->
+                        <optgroup label="Insiden Lingkungan">
+                            <option>Pohon Tumbang</option>
+                            <option>Tiang Listrik Roboh</option>
+                        </optgroup>
+
                     </select>
                 </div>
             </div>
