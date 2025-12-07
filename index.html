@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIGAP - GeoSense MASTERPIECE</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; overflow: hidden; background: #0f172a; }
+        
+        /* === 3D MAP ENGINE === */
+        #map-wrapper {
+            position: absolute; inset: 0;
+            perspective: 1000px;
+            overflow: hidden;
+            background: #111;
+        }
+        
+        #map-container {
+            width: 100%; height: 100%;
+            transition: transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+
+        .drone-active {
+            transform: rotateX(60deg) scale(1.4);
+        }
+
+        /* === UI STYLES === */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* Marker Styles */
+        .custom-pin {
+            filter: drop-shadow(0 4px 4px rgba(0,0,0,0.5));
+            transition: transform 0.2s;
+        }
+        .custom-pin:hover { transform: scale(1.3); z-index: 999; }
+
+        /* HUD Overlay */
+        .hud-overlay {
+            pointer-events: none;
+            background: radial-gradient(circle, transparent 50%, rgba(0,0,0,0.8) 100%);
+            z-index: 500;
+        }
+        
+        /* Mobile Simulator Frame */
+        .mobile-frame {
+            width: 375px; height: 720px;
+            border: 14px solid #1e293b;
+            border-radius: 45px;
+            background: #f8fafc;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex; flex-direction: column;
+            z-index: 5000;
+        }
+
+        /* Role Switcher */
+        .role-switcher {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            z-index: 9000;
+            display: flex; gap: 15px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px 20px; border-radius: 50px;
+            border: 1px solid #444;
+            opacity: 0; animation: fadeIn 1s forwards 2.5s; /* Muncul setelah splash */
+        }
+
+        /* Splash Screen */
+        #splash-screen {
+            position: fixed; inset: 0;
+            background: #0f172a;
+            z-index: 9999;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            animation: fadeOut 0.5s forwards 2s;
+            pointer-events: none;
+        }
+
+        @keyframes fadeOut { to { opacity: 0; visibility: hidden; } }
+        @keyframes fadeIn { to { opacity: 1; } }
+        
+        .scan-line {
+            position: absolute; top: 0; left: 0; width: 100%; height: 4px;
+            background: #0f0; box-shadow: 0 0 10px #0f0;
+            animation: scan 3s linear infinite;
+        }
+        @keyframes scan { 0% {top:0%; opacity:0} 50% {opacity:1} 100% {top:100%; opacity:0} }
+
+        /* Submenu Animation */
+        .submenu {
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+            max-height: 0; opacity: 0; overflow: hidden;
+        }
+        .submenu.open { max-height: 200px; opacity: 1; }
+        
+        /* Chart Bar */
+        .bar { height: 6px; border-radius: 3px; background: #334155; overflow: hidden; }
+        .bar-fill { height: 100%; background: #3b82f6; animation: fillBar 1.5s ease-out forwards; width: 0; }
+        @keyframes fillBar { to { width: var(--w); } }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- === SPLASH SCREEN (INTRO) === -->
+    <div id="splash-screen">
+        <div class="flex items-center gap-4 mb-4">
+            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center animate-bounce">
+                <i class="fa-solid fa-earth-asia text-4xl text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-4xl font-bold tracking-tighter">SIGAP</h1>
+                <p class="text-sm text-blue-400 tracking-[0.3em]">GEOSPATIAL AI</p>
+            </div>
+        </div>
+        <div class="w-48 h-1 bg-slate-800 rounded-full overflow-hidden">
+            <div class="h-full bg-blue-500 animate-[fillBar_2s_ease-out]"></div>
+        </div>
+    </div>
+
+    <!-- === KONTROL UTAMA: GANTI PERAN === -->
+    <div class="role-switcher">
+        <button onclick="switchRole('admin')" id="btn-role-admin" class="flex items-center gap-2 px-6 py-2 bg-blue-600 rounded-full font-bold text-sm hover:bg-blue-500 transition shadow-[0_0_15px_blue]">
+            <i class="fa-solid fa-desktop"></i> ADMIN DASHBOARD
+        </button>
+        <button onclick="switchRole('volunteer')" id="btn-role-vol" class="flex items-center gap-2 px-6 py-2 bg-slate-700 rounded-full font-bold text-sm hover:bg-slate-600 transition text-slate-300">
+            <i class="fa-solid fa-mobile-screen"></i> HP RELAWAN
+        </button>
+    </div>
+
+    <!-- ========================================= -->
+    <!-- VIEW 1: ADMIN DASHBOARD (Desktop GIS)     -->
+    <!-- ========================================= -->
+    <div id="admin-view" class="w-full h-screen relative">
+        
+        <!-- Peta Container -->
+        <div id="map-wrapper">
+            <div id="map-container">
+                <div id="map" class="w-full h-full bg-slate-900"></div>
+            </div>
+        </div>
+
+        <!-- HUD Overlay (Muncul di Mode Drone) -->
+        <div id="drone-hud" class="absolute inset-0 hud-overlay hidden flex flex-col justify-between p-8">
+            <div class="scan-line"></div>
+            <div class="flex justify-between font-mono text-green-400 text-sm tracking-widest">
+                <div><span class="bg-red-600 text-white px-2 rounded text-xs font-bold animate-pulse">● LIVE</span> CAM-01</div>
+                <div>ALT: 120m | SPD: 30km/h</div>
+            </div>
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div class="w-16 h-16 border-2 border-green-500/50 rounded-lg flex items-center justify-center">
+                    <div class="w-1 h-1 bg-green-500"></div>
+                    <div class="absolute -top-4 text-[10px] text-green-500 bg-black/60 px-2 rounded">TARGET LOCKED</div>
+                </div>
+            </div>
+            <div class="text-center font-mono text-xs text-green-400">--- SYSTEM ACTIVE ---</div>
+        </div>
+
+        <!-- Sidebar Info -->
+        <div class="absolute top-6 left-6 w-72 glass-panel rounded-2xl p-5 z-[1000] max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg"><i class="fa-solid fa-globe text-xl"></i></div>
+                <div>
+                    <h1 class="font-bold text-xl leading-none">SIGAP</h1>
+                    <p class="text-[10px] text-slate-400">COMMAND CENTER</p>
+                </div>
+            </div>
+
+            <!-- Stats (NEW) -->
+            <div class="mb-6 space-y-3">
+                <div>
+                    <div class="flex justify-between text-[10px] text-slate-400 mb-1"><span>Relawan Aktif</span> <span>124</span></div>
+                    <div class="bar"><div class="bar-fill" style="--w: 75%"></div></div>
+                </div>
+                <div>
+                    <div class="flex justify-between text-[10px] text-slate-400 mb-1"><span>Laporan Masuk</span> <span>85%</span></div>
+                    <div class="bar"><div class="bar-fill bg-red-500" style="--w: 85%; background: #ef4444;"></div></div>
+                </div>
+            </div>
+
+            <button onclick="setMode('normal')" id="btn-view-normal" class="w-full mb-2 flex items-center gap-3 p-3 rounded-xl bg-blue-600 text-white transition"><i class="fa-solid fa-map"></i> Map View</button>
+            <button onclick="setMode('drone')" id="btn-view-drone" class="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition"><i class="fa-solid fa-plane-up"></i> Drone 3D</button>
+            
+            <div class="mt-4 pt-4 border-t border-white/10">
+                <p class="text-xs font-bold text-slate-400 mb-2">HOTSPOTS AREA (Dropdown)</p>
+                <div class="space-y-2 text-xs">
+                    
+                    <!-- ACEH -->
+                    <div>
+                        <div class="flex justify-between bg-white/5 p-2 rounded cursor-pointer hover:bg-white/10 transition items-center" onclick="toggleRegion('Aceh')">
+                            <span class="text-red-400 font-bold flex items-center gap-2"><i class="fa-solid fa-chevron-right text-[10px]"></i> Aceh</span> 
+                            <span class="bg-red-500/20 text-red-400 px-1 rounded">3 Titik</span>
+                        </div>
+                        <div id="list-Aceh" class="submenu pl-4 space-y-1 mt-1">
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(1)"><div class="w-1 h-1 bg-red-500 rounded-full"></div> Banjir Banda Aceh</div>
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(2)"><div class="w-1 h-1 bg-orange-500 rounded-full"></div> Longsor Meulaboh</div>
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(3)"><div class="w-1 h-1 bg-yellow-500 rounded-full"></div> Banjir Aceh Barat</div>
+                        </div>
+                    </div>
+
+                    <!-- SUMUT -->
+                    <div>
+                        <div class="flex justify-between bg-white/5 p-2 rounded cursor-pointer hover:bg-white/10 transition items-center" onclick="toggleRegion('Sumut')">
+                            <span class="text-orange-400 font-bold flex items-center gap-2"><i class="fa-solid fa-chevron-right text-[10px]"></i> Sumut</span> 
+                            <span class="bg-orange-500/20 text-orange-400 px-1 rounded">3 Titik</span>
+                        </div>
+                        <div id="list-Sumut" class="submenu pl-4 space-y-1 mt-1">
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(4)"><div class="w-1 h-1 bg-red-500 rounded-full"></div> Banjir Medan</div>
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(5)"><div class="w-1 h-1 bg-orange-500 rounded-full"></div> Longsor Toba</div>
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(6)"><div class="w-1 h-1 bg-yellow-500 rounded-full"></div> Banjir Tebing Tinggi</div>
+                        </div>
+                    </div>
+
+                    <!-- SUMBAR -->
+                    <div>
+                        <div class="flex justify-between bg-white/5 p-2 rounded cursor-pointer hover:bg-white/10 transition items-center" onclick="toggleRegion('Sumbar')">
+                            <span class="text-yellow-400 font-bold flex items-center gap-2"><i class="fa-solid fa-chevron-right text-[10px]"></i> Sumbar</span> 
+                            <span class="bg-yellow-500/20 text-yellow-400 px-1 rounded">3 Titik</span>
+                        </div>
+                        <div id="list-Sumbar" class="submenu pl-4 space-y-1 mt-1">
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(10)"><div class="w-1 h-1 bg-red-500 rounded-full"></div> Jalan Amblas KM 45</div>
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(11)"><div class="w-1 h-1 bg-orange-500 rounded-full"></div> Banjir Lembah Anai</div>
+                            <div class="p-2 bg-white/5 rounded cursor-pointer hover:bg-blue-600/50 flex items-center gap-2" onclick="flyToLocation(12)"><div class="w-1 h-1 bg-yellow-500 rounded-full"></div> Pohon Tumbang</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- DETAIL MODAL -->
+        <div id="detail-modal" class="absolute right-6 top-6 bottom-6 w-96 glass-panel rounded-3xl z-[2000] transform translate-x-[150%] transition-transform duration-300 flex flex-col overflow-hidden">
+            <button onclick="closeDetail()" class="absolute top-4 right-4 z-10 w-8 h-8 bg-black/40 rounded-full hover:bg-black/60 flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+
+            <div class="h-52 bg-gray-800 relative shrink-0">
+                <img id="detail-img" src="" class="w-full h-full object-cover">
+                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-4 pt-10">
+                    <span id="detail-severity" class="px-2 py-1 rounded text-[10px] font-bold uppercase bg-red-500 text-white mb-1 inline-block">CRITICAL</span>
+                    <h2 id="detail-title" class="text-lg font-bold text-white leading-tight">Judul Laporan</h2>
+                </div>
+            </div>
+
+            <div class="p-5 flex-1 overflow-y-auto space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-white/5 p-3 rounded-xl"><p class="text-[10px] text-slate-400">Waktu</p><p id="detail-time" class="text-sm font-bold">10:30 WIB</p></div>
+                    <div class="bg-white/5 p-3 rounded-xl"><p class="text-[10px] text-slate-400">Status</p><p id="detail-status" class="text-sm font-bold text-yellow-400">Pending</p></div>
+                </div>
+                <div>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase mb-1">Kronologi</h3>
+                    <p id="detail-desc" class="text-sm text-slate-300 font-light leading-relaxed">Keterangan...</p>
+                </div>
+                <div class="pt-2">
+                    <button onclick="verifyReport()" class="w-full py-3 bg-green-600 hover:bg-green-500 rounded-xl font-bold text-sm shadow-lg">VERIFIKASI LAPORAN</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- NOTIFIKASI TOAST -->
+        <div id="notification-toast" onclick="openVerification()" class="absolute top-6 right-6 w-80 glass-panel border-l-4 border-yellow-500 p-4 rounded-lg transform translate-x-[150%] transition-transform duration-500 z-[3000] cursor-pointer hover:bg-white/10">
+            <div class="flex items-start gap-3">
+                <div class="bg-yellow-500/20 p-2 rounded-full text-yellow-500"><i class="fa-solid fa-bell animate-bounce"></i></div>
+                <div>
+                    <h4 class="font-bold text-sm text-white">Laporan Baru Masuk!</h4>
+                    <p class="text-xs text-slate-300">Lokasi: Lembah Anai, Sumbar</p>
+                    <p class="text-xs text-blue-400 mt-1 font-bold">Klik untuk Verifikasi</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================= -->
+    <!-- VIEW 2: HP RELAWAN (Mobile Form)          -->
+    <!-- ========================================= -->
+    <div id="volunteer-view" class="w-full h-screen bg-slate-900 hidden items-center justify-center">
+        <div class="mobile-frame">
+            <!-- Header HP -->
+            <div class="bg-blue-600 p-5 pb-8 rounded-b-3xl shadow-lg shrink-0 text-white">
+                <h2 class="font-bold text-lg">Input Laporan</h2>
+                <p class="text-xs opacity-80 mt-1">Formulir Relawan Lapangan</p>
+            </div>
+
+            <!-- Content HP -->
+            <div class="flex-1 p-5 overflow-y-auto space-y-4 text-slate-800">
+                <!-- Preview Peta (UPDATED: Aerial View Sumatera) -->
+                <div class="bg-white p-4 rounded-xl shadow-sm">
+                    <label class="text-xs font-bold text-slate-400 block mb-2">LOKASI GPS TERDETEKSI</label>
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600"><i class="fa-solid fa-location-dot"></i></div>
+                        <div>
+                            <p class="font-bold text-sm text-slate-900">-0.4622, 100.3991</p>
+                            <p class="text-[10px] text-green-600 font-bold">Akurasi: 3 Meter</p>
+                        </div>
+                    </div>
+                    <!-- Gambar Peta Hutan/Sumatera Statis -->
+                    <div class="h-32 bg-slate-200 rounded-lg overflow-hidden relative border border-slate-300 group">
+                         <img src="https://images.unsplash.com/photo-1542279580-140211874135?q=80&w=600&auto=format&fit=crop" class="w-full h-full object-cover group-hover:scale-110 transition duration-500">
+                         <div class="absolute inset-0 bg-black/10"></div>
+                         <div class="absolute inset-0 flex items-center justify-center">
+                            <div class="w-8 h-8 bg-red-500/30 rounded-full flex items-center justify-center animate-ping absolute"></div>
+                            <i class="fa-solid fa-location-pin text-red-600 text-3xl drop-shadow-md z-10 relative bottom-3"></i>
+                         </div>
+                         <div class="absolute bottom-1 right-1 bg-white/80 px-1 rounded text-[8px] text-slate-600 font-bold">SATELLITE</div>
+                    </div>
+                </div>
+
+                <!-- Foto Bukti -->
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2">FOTO BUKTI</label>
+                    <div onclick="alert('Kamera HP Terbuka...')" class="border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl h-20 flex flex-col items-center justify-center cursor-pointer active:bg-blue-100 hover:border-blue-500 transition">
+                        <i class="fa-solid fa-camera text-blue-400 text-xl"></i>
+                        <span class="text-[10px] text-blue-500 font-bold mt-1">Ambil Foto</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2">KETERANGAN</label>
+                    <select class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>Tanah Longsor</option>
+                        <option>Banjir Bandang</option>
+                        <option>Jalan Putus</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Tombol Kirim -->
+            <div class="p-5 bg-white border-t border-slate-200 shrink-0">
+                <button onclick="submitReport()" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition hover:bg-blue-700">
+                    KIRIM DATA
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === DATA DUMMY ===
+        const incidentData = [
+            // SUMBAR
+            { id: 10, lat: -0.462, lng: 100.405, region: 'Sumbar', color: 'red', title: "Jalan Amblas KM 45", severity: "CRITICAL", time: "09:15 WIB", status: "Putus Total", img: "https://images.unsplash.com/photo-1541444537751-2475475ee466?q=80&w=600", desc: "Jalan penghubung utama amblas selebar 4 meter." },
+            { id: 11, lat: -0.458, lng: 100.395, region: 'Sumbar', color: 'orange', title: "Banjir Lembah Anai", severity: "HIGH", time: "08:45 WIB", status: "Evakuasi", img: "https://images.unsplash.com/photo-1629810733835-263a920215e9?q=80&w=600", desc: "Air sungai meluap merendam pemukiman." },
+            { id: 12, lat: -0.465, lng: 100.390, region: 'Sumbar', color: 'yellow', title: "Pohon Tumbang", severity: "MEDIUM", time: "10:00 WIB", status: "Menunggu PLN", img: "https://images.unsplash.com/photo-1605051996504-245f7c32087d?q=80&w=600", desc: "Pohon menimpa kabel listrik." },
+            // ACEH
+            { id: 1, lat: 5.548, lng: 95.323, region: 'Aceh', color: 'red', title: "Banjir Banda Aceh", severity: "CRITICAL", time: "06:40 WIB", status: "Evakuasi", img: "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?q=80&w=600", desc: "Banjir besar merendam ratusan rumah." },
+            { id: 2, lat: 4.148, lng: 96.123, region: 'Aceh', color: 'orange', title: "Longsor Meulaboh", severity: "HIGH", time: "07:00 WIB", status: "Akses Putus", img: "https://images.unsplash.com/photo-1616440165884-840a1df7bc35?q=80&w=600", desc: "Longsor menutup jalan lintas barat." },
+            { id: 3, lat: 4.448, lng: 96.374, region: 'Aceh', color: 'yellow', title: "Banjir Aceh Barat", severity: "MEDIUM", time: "09:00 WIB", status: "Siaga", img: "https://images.unsplash.com/photo-1528747045269-390fe33c19cf?q=80&w=600", desc: "Arus banjir membawa batang pohon." },
+            // SUMUT
+            { id: 4, lat: 3.585, lng: 98.675, region: 'Sumut', color: 'red', title: "Banjir Medan", severity: "HIGH", time: "11:10 WIB", status: "Siaga", img: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?q=80&w=600", desc: "Sungai Deli meluap." },
+            { id: 5, lat: 2.33, lng: 99.06, region: 'Sumut', color: 'orange', title: "Longsor Toba", severity: "MEDIUM", time: "10:30 WIB", status: "Perbaikan", img: "https://images.unsplash.com/photo-1523413651479-597eb2da0ad6?q=80&w=600", desc: "Material tanah menutupi jalan." },
+            { id: 6, lat: 2.195, lng: 99.065, region: 'Sumut', color: 'yellow', title: "Banjir Tebing Tinggi", severity: "CRITICAL", time: "04:20 WIB", status: "Evakuasi", img: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?q=80&w=600", desc: "Sungai meluap akibat hujan deras." }
+        ];
+
+        // === MAP SETUP ===
+        const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0.5, 100.0], 6);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri' }).addTo(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png').addTo(map);
+
+        // === POLYGON ZONES (NEW) ===
+        // Aceh (Red Zone)
+        L.circle([4.6, 96.5], { color: 'red', fillColor: '#f03', fillOpacity: 0.2, radius: 150000 }).addTo(map);
+        // Sumut (Orange Zone)
+        L.circle([2.5, 99.0], { color: 'orange', fillColor: '#f90', fillOpacity: 0.2, radius: 120000 }).addTo(map);
+        // Sumbar (Yellow Zone)
+        L.circle([-0.8, 100.5], { color: 'yellow', fillColor: '#ff0', fillOpacity: 0.2, radius: 100000 }).addTo(map);
+
+        // === MARKERS ===
+        const markers = {};
+        incidentData.forEach(data => {
+            const iconHtml = `<div class="w-4 h-4 rounded-full bg-${data.color}-500 border-2 border-white shadow-[0_0_15px_${data.color}] cursor-pointer hover:scale-150 transition-transform"></div>`;
+            const icon = L.divIcon({ className: 'custom-pin', html: iconHtml, iconSize: [16, 16] });
+            const marker = L.marker([data.lat, data.lng], {icon: icon}).addTo(map);
+            marker.on('click', () => { showDetail(data); if(!isDroneMode) map.flyTo([data.lat, data.lng], 12, { duration: 1.5 }); });
+            markers[data.id] = marker;
+        });
+
+        // === DRONE LOGIC ===
+        let isDroneMode = false;
+        let droneMarker = null;
+        let droneInterval = null;
+        const droneIcon = L.divIcon({ html: `<div class="relative w-12 h-12 flex items-center justify-center"><div class="absolute inset-0 border border-green-400 rounded-full animate-ping opacity-50"></div><i class="fa-solid fa-plane text-white text-2xl rotate-45 drop-shadow-md"></i></div>`, className: 'bg-transparent', iconSize: [40, 40] });
+
+        function startDrone() {
+            if(droneMarker) map.removeLayer(droneMarker);
+            let lat = -0.460, lng = 100.400, angle = 0;
+            droneMarker = L.marker([lat, lng], {icon: droneIcon, zIndexOffset: 1000}).addTo(map);
+            droneInterval = setInterval(() => {
+                angle += 0.01; lat = -0.460 + Math.sin(angle) * 0.015; lng = 100.400 + Math.cos(angle * 1.5) * 0.015;
+                const newPos = [lat, lng]; droneMarker.setLatLng(newPos);
+                if(isDroneMode) map.panTo(newPos, {animate: true, duration: 0.1, noMoveStart: true});
+            }, 50);
+        }
+
+        // === UI INTERACTION ===
+        function switchRole(role) {
+            const adminView = document.getElementById('admin-view');
+            const volView = document.getElementById('volunteer-view');
+            const btnAdmin = document.getElementById('btn-role-admin');
+            const btnVol = document.getElementById('btn-role-vol');
+
+            if(role === 'admin') {
+                adminView.classList.remove('hidden'); volView.classList.add('hidden'); volView.classList.remove('flex');
+                btnAdmin.classList.add('bg-blue-600', 'text-white'); btnAdmin.classList.remove('bg-slate-700', 'text-slate-300');
+                btnVol.classList.add('bg-slate-700', 'text-slate-300'); btnVol.classList.remove('bg-blue-600', 'text-white');
+                setTimeout(() => { map.invalidateSize(); }, 200);
+            } else {
+                adminView.classList.add('hidden'); volView.classList.remove('hidden'); volView.classList.add('flex');
+                btnVol.classList.add('bg-blue-600', 'text-white'); btnVol.classList.remove('bg-slate-700', 'text-slate-300');
+                btnAdmin.classList.add('bg-slate-700', 'text-slate-300'); btnAdmin.classList.remove('bg-blue-600', 'text-white');
+            }
+        }
+
+        function setMode(mode) {
+            const container = document.getElementById('map-container');
+            const hud = document.getElementById('drone-hud');
+            const btnNorm = document.getElementById('btn-view-normal');
+            const btnDrone = document.getElementById('btn-view-drone');
+
+            if(mode === 'drone') {
+                isDroneMode = true; container.classList.add('drone-active'); hud.classList.remove('hidden');
+                map.setZoom(16); startDrone(); closeDetail();
+                btnDrone.classList.replace('bg-white/5', 'bg-blue-600'); btnNorm.classList.replace('bg-blue-600', 'bg-white/5');
+            } else {
+                isDroneMode = false; container.classList.remove('drone-active'); hud.classList.add('hidden');
+                map.setZoom(6); map.flyTo([0.5, 100.0], 6);
+                if(droneInterval) clearInterval(droneInterval); if(droneMarker) map.removeLayer(droneMarker);
+                btnNorm.classList.replace('bg-white/5', 'bg-blue-600'); btnDrone.classList.replace('bg-blue-600', 'bg-white/5');
+            }
+        }
+
+        function showDetail(data) {
+            document.getElementById('detail-title').innerText = data.title;
+            document.getElementById('detail-severity').innerText = data.severity;
+            document.getElementById('detail-severity').className = `px-2 py-1 rounded text-[10px] font-bold uppercase text-white mb-1 inline-block ${data.severity === 'CRITICAL' ? 'bg-red-600' : 'bg-orange-500'}`;
+            document.getElementById('detail-time').innerText = data.time;
+            document.getElementById('detail-status').innerText = data.status;
+            document.getElementById('detail-desc').innerText = data.desc;
+            document.getElementById('detail-img').src = data.img;
+            document.getElementById('detail-modal').classList.remove('translate-x-[150%]');
+        }
+
+        function closeDetail() { document.getElementById('detail-modal').classList.add('translate-x-[150%]'); }
+
+        function submitReport() {
+            const btn = event.target; btn.innerText = "MENGIRIM...";
+            setTimeout(() => {
+                alert("Sukses! Laporan dikirim ke Admin."); btn.innerText = "KIRIM DATA";
+                setTimeout(() => { document.getElementById('notification-toast').classList.remove('translate-x-[150%]'); }, 1000);
+            }, 1000);
+        }
+
+        function openVerification() {
+            const newData = { title: "Laporan Baru: Lembah Anai", severity: "HIGH", time: "BARU SAJA", status: "Perlu Verifikasi", img: "https://images.unsplash.com/photo-1599930113854-d6d7fd521f10?q=80&w=600", desc: "Jalan putus total tertimbun longsor." };
+            showDetail(newData);
+            map.flyTo([-0.462, 100.405], 16, {duration: 2});
+            document.getElementById('notification-toast').classList.add('translate-x-[150%]');
+            const iconHtml = `<div class="w-4 h-4 rounded-full bg-blue-500 border-2 border-white animate-bounce"></div>`;
+            const icon = L.divIcon({ className: 'custom-pin', html: iconHtml });
+            L.marker([-0.462, 100.405], {icon: icon}).addTo(map);
+        }
+
+        function verifyReport() { alert("Laporan Diverifikasi via Drone! Status: VALID"); closeDetail(); }
+        
+        function toggleRegion(regionName) {
+            // Matikan drone kalau lagi nyala biar gak pusing
+            if(isDroneMode) setMode('normal');
+            
+            focusRegion(regionName);
+            const list = document.getElementById('list-' + regionName);
+            list.classList.toggle('open');
+            ['Aceh', 'Sumut', 'Sumbar'].forEach(r => { if(r !== regionName) document.getElementById('list-' + r).classList.remove('open'); });
+        }
+
+        function focusRegion(regionName) {
+            const targetData = incidentData.filter(d => d.region === regionName);
+            if(targetData.length > 0) {
+                const groupMarkers = targetData.map(d => markers[d.id]);
+                const group = new L.featureGroup(groupMarkers);
+                map.fitBounds(group.getBounds().pad(0.2));
+            }
+        }
+        
+        function flyToLocation(id) {
+            if(isDroneMode) setMode('normal'); // Matikan drone dulu
+            const data = incidentData.find(d => d.id === id);
+            if(data) { map.flyTo([data.lat, data.lng], 12, { duration: 1.5 }); showDetail(data); }
+        }
+
+        setTimeout(() => map.invalidateSize(), 500);
+    </script>
+</body>
+</html>
